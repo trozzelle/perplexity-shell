@@ -7,6 +7,7 @@ import urllib.error
 import json
 from typing import Any, Dict
 
+# Second stage of the script
 
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -14,6 +15,7 @@ logging.basicConfig(
 
 
 def query_perplexity(query: str, api_key: str) -> str:
+    """Construct the request, send it to Perplexity, and return the response"""
     url = "https://api.perplexity.ai/chat/completions"
 
     headers = {
@@ -72,7 +74,6 @@ def query_perplexity(query: str, api_key: str) -> str:
             # result = response_json.get("completion", "No result from Perplexity.")
             # return result
 
-            # Extract the completion from the response
             if "choices" in response_json and len(response_json["choices"]) > 0:
                 return response_json["choices"][0]["message"]["content"]
             else:
@@ -96,6 +97,7 @@ def file_info(query: str, api_key: str, params) -> str:
 
 
 def cmd_help(query: str, api_key: str, params) -> str:
+    """Prompt for pxhelp"""
     try:
         prompt = f"""
             Command type: {params["cmd_type"]}
@@ -112,6 +114,7 @@ def cmd_help(query: str, api_key: str, params) -> str:
 
 
 def main() -> None:
+    """Args are passed from the first stage of the script"""
     parser = argparse.ArgumentParser(description="Query Perplexity from your shell.")
     parser.add_argument("--query", required=True, help="Query to perplexity.")
     parser.add_argument("--api_key", required=True, help="Perplexity API key.")

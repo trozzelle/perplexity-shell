@@ -1,5 +1,8 @@
 #!/usr/bin/env zsh
 
+## Basic Perplexity ZSH plugin
+# This script uses a python script for the heavy lifting (parsing, request, and response formatting)
+
 # Check if PERPLEXITY_API_KEY is set
 if [[ -z "${PERPLEXITY_API_KEY}" ]]; then
     echo "Please set PERPLEXITY_API_KEY in your environment variables"
