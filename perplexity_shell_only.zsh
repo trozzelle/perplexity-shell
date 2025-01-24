@@ -68,9 +68,6 @@ pxhelp() {
     local cmd_type=$(type "$command" 2>/dev/null)
     local man_exists=$(man -w "$command" 2>/dev/null)
 
-    # If added, will request a JSON-formatted response
-    local response_schema='{"type":"json_schema","json_schema":{"schema":{"type":"object","properties":{"explanation":{"type":"string","description":"Main explanation text"},"examples":{"type":"array","items":{"type":"string"},"description":"List of examples or key points"}},"required":["explanation","examples"]}}}'
-
     # Improved escaping
     local escaped_cmd_type=$(echo "$cmd_type" | perl -pe 's/\n/\\n/g' | perl -pe 's/"/\\"/g')
     local escaped_question=$(echo "$question" | perl -pe 's/"/\\"/g')
@@ -101,49 +98,26 @@ pxhelp() {
 EOF
 )
 
-
-    # Print the JSON payload for inspection
-    echo "DEBUG: JSON Payload:"
-#    echo "$json_payload" | jq '.'
-
-    local response
-    local response_file="/tmp/pxresponse.json"
-    # Make API call with verbose output
-    local response=$(curl -s -X POST "https://api.perplexity.ai/chat/completions" \
+  # Make request and store result in a temporary file
+  local temp_file=$(mktemp)
+   curl -s -X POST "https://api.perplexity.ai/chat/completions" \
         -H "Authorization: Bearer ${PERPLEXITY_API_KEY}" \
         -H "Content-Type: application/json" \
-        -d "$json_payload")
+        -d "$json_payload" > "$temp_file"
 
-    echo "$response" | format_response
-#    if [[ ! -f "$response_file" ]]; then
-#        echo "Error: Failed to save response."
-#        return 1
-#    fi
-#
-##    local extracted_text = $(cat $response_file)
-#    jq -r '.' $response_file | format_response
-#    echo "$response" | perl -pe 's/\\n/\n/g' | perl -pe 's/\\"/"/g' | jq '.'
-    # First, handle the outer quotes and escaping, then parse with jq
-#    echo "$response" | \
-#        # Remove the outer quotes
-#        perl -pe 's/^"|"$//g' | \
-#        # Ensure newlines in JSON strings are properly escaped
-#        perl -pe 's/\n/\\n/g' | \
-#
-#        perl -pe 's/\n$//' | \
-#        # Now we can parse with jq
-#        jq '.' | format_response
+  #
+  local escaped_json=$(jq -r '. | tojson' $temp_file | sed -e 's/^"//' -e 's/"$//')
+  format_response "$escaped_json"
 
 
-#    echo "$response" | jq -r '.'
+  rm "$temp_file"
   }
-
 
 
 # Function to format the API response with colors and styling
 format_response() {
     local json_response
-    IFS= read -r -d '' json_response
+    json_response="$*"
 
     # Define colors and styles
     local BLUE='\033[0;34m'
@@ -151,37 +125,37 @@ format_response() {
     local GRAY='\033[0;90m'
     local RESET='\033[0m'
     local BOLD='\033[1m'
+    local CYAN='\033[0;36m'
 
-
-    # Extract content with proper JSON parsing
-    local content=$(echo "$json_response" | jq -r '.choices[0].message.content | gsub("\\\\n"; "\n") | gsub("\\\\\""; "\"")')
-    local citations=$(echo "$json_response" | jq -r '.citations[]? | .text + " (" + .url + ")"')
-
+    local choice=$(jq '.choices[0]' <<< $json_response 2>/dev/null)
 
     # Print a separator line
-    echo "\n${BLUE}═══════════════════════════════════════════${RESET}\n"
+    echo "\n${BLUE}―――――――――――――――――――――――――――――――――――――――――――――${RESET}\n"
 
-#    # Print the explanation with proper formatting
-#    echo "$explanation" | sed 's/\\n/\n/g' | sed 's/\\"/"/g' | \
-#                         sed -E "s/\`\`\`([^$]*)\`\`\`/${GREEN}&${RESET}/g" | \
-#                         sed -E "s/\`([^\`]*)\`/${GREEN}&${RESET}/g"
-#
-#    # Print examples
-#    echo "\n${BOLD}Examples:${RESET}"
-#    echo "$examples" | while read -r example; do
-#        echo "${GREEN}• $example${RESET}"
-#    done
+    # Process the content line by line to apply formatting
+    local content=$(jq '.message.content' <<< "$choice" 2>/dev/null)
+    echo "$content" | while IFS= read -r line; do
+        # Format code blocks
+        if [[ "$line" =~ ^'\`\`\`' ]]; then
+            echo "${CYAN}$line${RESET}"
+        # Format numbered lists
+        elif [[ "$line" =~ ^[0-9]+\. ]]; then
+            echo "${GREEN}$line${RESET}"
+        else
+            echo "$line"
+        fi
+    done
 
-    # Print citations if they exist
+    local citations=$(jq -r '.citations[]' <<< "$json_response" 2>/dev/null | head -n 3)
     if [[ -n "$citations" ]]; then
         echo "\n${BOLD}References:${RESET}"
-        echo "$citations" | while read -r citation; do
+        echo "$citations" | while IFS= read -r citation; do
             echo "${GRAY}• $citation${RESET}"
         done
     fi
 
     # Print ending separator
-    echo "\n${BLUE}═══════════════════════════════════════════${RESET}\n"
+    echo "\n${BLUE}―――――――――――――――――――――――――――――――――――――――――――――${RESET}\n"
 }
 
 # For dev only, remove before publish
