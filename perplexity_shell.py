@@ -6,62 +6,73 @@ import urllib.request
 import urllib.error
 import json
 from typing import Any, Dict
+from rich.console import Console
+from rich.panel import Panel
+from rich.markdown import Markdown
+from rich.syntax import Syntax
+from rich.logging import RichHandler
+
+
+def setup_logging(debug: bool = False) -> None:
+    level = logging.DEBUG if debug else logging.INFO
+
+    log_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            RichHandler(rich_tracebacks=True, markup=True),
+            logging.FileHandler(os.path.join(log_dir, "perplexity.log")),
+        ],
+    )
 
 
 class TerminalFormatter:
-    """Handle terminal output formatting with ANSI color codes"""
+    """Handle terminal output formatting using Rich"""
 
-    BLUE = "\033[0;34m"
-    GREEN = "\033[0;32m"
-    YELLOW = "\033[0;33m"
-    GRAY = "\033[0;90m"
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
+    def __init__(self):
+        self.console = Console()
+        self.logger = logging.getLogger(__name__)
 
-    @classmethod
-    def format_response(cls, response_json: str) -> str:
-        """Format the JSON response for terminal output"""
+    def format_response(self, data: Dict[str, Any]) -> None:
+        """Format the JSON response for terminal output using Rich"""
         try:
-            output = []
+            # Create markdown content
+            markdown_content = []
 
-            # Add header separator
-            output.append(f"\n{cls.BLUE}{'━' * 50}{cls.RESET}\n")
-
-            # Main explanation
-            explanation = response_json.get("explanation", "")
+            # Add explanation
+            explanation = data.get("explanation", "")
             if explanation:
-                # Split long text into paragraphs for better readability
-                paragraphs = explanation.split("\n\n")  # Split on double newlines
-                for para in paragraphs:
-                    output.append(f"{cls.BOLD}{para.strip()}{cls.RESET}\n")
+                markdown_content.append(explanation)
+                markdown_content.append("\n")  # Add spacing
 
-            # Examples
-            examples = response_json.get("examples", [])
+            # Add examples
+            examples = data.get("examples", [])
             if examples:
-                output.append(f"\n{cls.YELLOW}Examples:{cls.RESET}")
+                markdown_content.append("### Examples\n")
                 for example in examples:
-                    output.append(f"  • {cls.GREEN}{example}{cls.RESET}")
-                output.append("")
+                    # Check if example is a dict with code
+                    if isinstance(example, dict) and "code" in example:
+                        markdown_content.append(f"**{example.get('description', '')}**")
+                        markdown_content.append(f"```\n{example['code']}\n```")
+                    else:
+                        markdown_content.append(f"* {example}")
+                    markdown_content.append("")  # Add spacing between examples
 
-            # Add footer separator
-            output.append(f"\n{cls.BLUE}{'━' * 50}{cls.RESET}\n")
-
-            return "\n".join(output)
+            # Convert to markdown and print
+            md = Markdown("\n".join(markdown_content))
+            self.console.print(Panel(md, border_style="blue"))
 
         except Exception as e:
-            logging.error(f"Failed to format response: {e}")
-            return str(response_json)
-
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse response JSON: {e}")
-            return str(response_json)
-        except Exception as e:
-            logging.error(f"Failed to format response response: {e}")
-            return str(response_json)
+            self.logger.error(f"Failed to format response: {e}")
+            self.console.print(str(data), style="red")
 
 
-def query_perplexity(query: str, api_key: str) -> str:
+def query_perplexity(query: str, api_key: str) -> Dict[str, Any]:
     """Construct the request, send it to Perplexity, and return the response"""
+    logger = logging.getLogger(__name__)
     url = "https://api.perplexity.ai/chat/completions"
 
     headers = {
@@ -103,32 +114,36 @@ def query_perplexity(query: str, api_key: str) -> str:
     }
 
     data = json.dumps(payload).encode("utf-8")
-    print(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    # response = urllib.request.urlopen(request, timeout=5)
-    # print(response.read().decode("utf-8"))
+    logger.debug(f"Sending request: {request}")
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             if response.status != 200:
                 raise ValueError(f"API request failed with status {response.status}")
 
-            # Parse the API response
             response_body = response.read().decode("utf-8")
             response_json = json.loads(response_body)
-            print(response_json)
-            if "choices" in response_json and len(response_json["choices"]) > 0:
-                # Get the content string which contains our nested JSON
-                content = response_json["choices"][0]["message"]["content"]
-                # Parse the nested JSON content
-                content_json = json.loads(content)
-                return TerminalFormatter.format_response(content_json)
-            return "No result from Perplexity."
+            logger.debug(f"Response body: {response_body}")
+            try:
+                if "choices" in response_json and len(response_json["choices"]) > 0:
+                    # Escapes the newlines often included in Perplexity's response
+                    logger.debug(f"Choices: {response_json['choices']}")
+                    content = json.dumps(
+                        response_json["choices"][0]["message"]["content"]
+                    )
+                    logger.info(f"Choices to str: {content}")
+
+                    return json.loads(json.loads(content))
+                return {"explanation": "No result from Perplexity."}
+            except json.decoder.JSONDecodeError:
+                logger.error(f"Failed to decode choices: {content}")
 
     except (urllib.error.HTTPError, urllib.error.URLError) as e:
-        logging.error(f"Request error: {e}")
+        logger.error(f"Request error: {e}")
         raise
     except json.JSONDecodeError as e:
-        logging.error(f"JSON decode error: {e}")
+        logger.error(f"JSON decode error: {e}")
+        logger.debug(f"Problematic JSON string: {response_body}")
         raise ValueError(f"Invalid JSON response: {e}")
 
 
@@ -136,8 +151,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Search using Perplexity AI")
     parser.add_argument("--query", required=True, help="Search query")
     parser.add_argument("--api_key", help="Perplexity API key")
-    parser.add_argument("--raw", action="store_true", help="Output raw JSON response")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     args = parser.parse_args()
+
+    setup_logging(args.debug)
+    logger = logging.getLogger(__name__)
+
+    logger.debug("Arguments: " + str(args))
 
     api_key = args.api_key or os.environ.get("PERPLEXITY_API_KEY")
     if not api_key:
@@ -146,10 +166,11 @@ def main() -> None:
         )
 
     try:
+        formatter = TerminalFormatter()
         response = query_perplexity(args.query, api_key)
-        print(response)
+        formatter.format_response(response)
     except Exception as e:
-        logging.error(f"Error: {e}")
+        logger.error(f"Error: {e}")
         sys.exit(1)
 
 
