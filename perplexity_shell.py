@@ -5,12 +5,17 @@ import sys
 import urllib.request
 import urllib.error
 import json
-from typing import Any, Dict
-from rich.console import Console
+from typing import Any, Dict, Tuple
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.logging import RichHandler
+from rich.align import Align
+from rich.text import Text
+from rich.table import Table
+from rich import box
+from rich.padding import Padding
 import re
 
 
@@ -34,37 +39,91 @@ class TerminalFormatter:
     """Handle terminal output formatting using Rich"""
 
     def __init__(self):
-        self.console = Console()
+        self.console = Console(markup=True)
         self.logger = logging.getLogger(__name__)
 
-    def format_response(self, data: Dict[str, Any]) -> None:
+    def format_response(self, data: Dict[str, Any], citations: Dict[str, Any]) -> None:
         """Format the JSON response for terminal output using Rich"""
         try:
-            # Create markdown content
-            markdown_content = []
+            # This will hold the rich renderables
+            rich_content = []
 
-            # Add explanation
+            # Add explanation (main text)
+            explanation_table = Table(
+                box=None,
+                expand=False,
+                show_header=False,
+                show_edge=False,
+                pad_edge=False,
+            )
             explanation = data.get("explanation", "")
+
+            if explanation and citations:
+                for i, citation in enumerate(citations, start=1):
+                    citation_url = citation if citation else "#"
+                    explanation = re.sub(
+                        f"\\[{i}\\]",
+                        f"[link={citation_url}][[cyan]{i}[/cyan]][/link]",
+                        explanation,
+                    )
+
             if explanation:
-                markdown_content.append(explanation)
-                markdown_content.append("\n")  # Add spacing
+                explanation_table.add_row(explanation)
+                rich_content.append(Padding(explanation_table, (0, 0, 3, 0)))
 
-            # Add examples
-            examples = data.get("examples", [])
-            if examples:
-                markdown_content.append("### Examples\n")
-                for example in examples:
-                    # Check if example is a dict with code
-                    if isinstance(example, dict) and "code" in example:
-                        markdown_content.append(f"**{example.get('description', '')}**")
-                        markdown_content.append(f"```\n{example['code']}\n```")
+            # Add additional notes (examples)
+            notes = data.get("examples", [])
+            if notes:
+                notes_table = Table(
+                    box=None,
+                    expand=False,
+                    # show_header=False,
+                    show_edge=False,
+                    pad_edge=False,
+                    # padding=(0, 0, 1, 0),
+                )
+                notes_table.title = "[green][b][u]Notes[/u][/b][/green]"
+
+                # This whole section needs to be cleaned up
+                notes_string = ""
+                notes_renderables = []
+
+                for note in notes:
+                    if isinstance(note, str) and citations:
+                        for i, citation in enumerate(citations, start=1):
+                            citation_url = citation if citation else "#"
+                            note = re.sub(
+                                f"\\[{i}\\]",
+                                f"[link={citation_url}][[cyan]{i}[/cyan]][/link]",
+                                note,
+                            )
+                    # Check if note is a dict with code
+                    if isinstance(note, dict) and "code" in note:
+                        notes_renderables.append(f"{note.get('description', '')}\n")
+                        code = note.get("code", "")
+                        lexer = Syntax.guess_lexer(code)
+                        syntax = Syntax(note.get("code", ""), lexer=lexer)
+                        notes_renderables.append(syntax)
+                        notes_renderables.append("\n")
                     else:
-                        markdown_content.append(f"* {example}")
-                    markdown_content.append("")  # Add spacing between examples
+                        notes_string += f"[yellow]•[/yellow] {note}" + "\n\n"
+                notes_table.add_row(
+                    notes_string if notes_string else Group(*notes_renderables)
+                )
+                notes_aligned = Align(notes_table, "center")
+                rich_content.append(notes_aligned)
 
-            # Convert to markdown and print
-            md = Markdown("\n".join(markdown_content))
-            self.console.print(Panel(md, border_style="blue"))
+            # Group the renderables, wrap in an Align constructor,
+            # then wrap in a Panel constructor and print
+            panel = Panel(
+                Align.center(Group(*rich_content), vertical="middle"),
+                box=box.ROUNDED,
+                border_style="blue",
+                padding=(1, 2),
+                title="[cyan]Perplexity Shell[/cyan]",
+                title_align="center",
+            )
+            self.console.print(panel)
 
         except Exception as e:
             self.logger.error(f"Failed to format response: {e}")
@@ -85,10 +144,17 @@ def parse_perplexity_response(raw_response: str) -> Dict[str, Any]:
     # newlines. A better approach would probably be to
     # recursively unescape the content and build the JSON
     # inside-out.
+    #
+    # I don't like how fragile this is because Perplexity could
+    # change the response structure (and probably should) at
+    # any moment so hopefully this will be replaced in the
+    # future with something more robust.
     if '"content":' in raw_response:
+        # If key exists, assume its the raw http response and parse
         outer_json = json.loads(raw_response)
         text = outer_json["choices"][0]["message"]["content"]
     else:
+        # If it doesn't, assume this is the content itself
         text = raw_response
 
     # Matches the JSON object, since sometimes the
@@ -132,7 +198,7 @@ def parse_perplexity_response(raw_response: str) -> Dict[str, Any]:
     return restore_newlines(result)
 
 
-def query_perplexity(query: str, api_key: str) -> Dict[str, Any]:
+def query_perplexity(query: str, api_key: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Construct the request, send it to Perplexity, and return the response"""
     logger = logging.getLogger(__name__)
     url = "https://api.perplexity.ai/chat/completions"
@@ -185,9 +251,12 @@ def query_perplexity(query: str, api_key: str) -> Dict[str, Any]:
                 raise ValueError(f"API request failed with status {response.status}")
 
             response_body = response.read().decode("utf-8")
+            logger.debug(f"Response body: {response_body}")
             try:
                 content = parse_perplexity_response(response_body)
-                return content
+                logger.debug(f"Content body: {content}")
+                citations = json.loads(response_body)["citations"]
+                return content, citations
             except Exception as e:
                 logger.error(f"Failed to parse perplexity response: {e}")
             # response_json = json.loads(response_body)
@@ -235,8 +304,8 @@ def main() -> None:
 
     try:
         formatter = TerminalFormatter()
-        response = query_perplexity(args.query, api_key)
-        formatter.format_response(response)
+        content, citations = query_perplexity(args.query, api_key)
+        formatter.format_response(content, citations)
     except Exception as e:
         logger.error(f"Error: {e}")
         sys.exit(1)
