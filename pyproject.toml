@@ -1,7 +1,14 @@
 [project]
-name = "untitled"
+name = "perplexity-shell"
 version = "0.1.0"
-description = "Add your description here"
+description = "Query Perplexity's API on the CLI"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+authors = [
+    { name = "Torin Rozzelle", email = "hello@torinrozzelle.com" },
+]
+readme = { file = "README.md", content-type = "text/markdown" }
+
+dependencies = [
+    "rich>=13.9.4",
+]

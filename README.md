@@ -1,69 +1,66 @@
 # Perplexity Shell
 
-A small zsh plugin that allows you to get answers about a file or command. Currently WIP, this is being made to demo the capability of Perplexity's search LLM.  
+A small zsh plugin that allows you to query Perplexity's search LLM from the command-line. Results are returned with citations and code examples, formatted for the terminal.
+
+Currently WIP and unstable, and will be until v1.0.0.
 
 ## Features
 
-- **File Context Analysis** (`pxcontext`): Get AI-powered insights about any file in your system
-- **Command Help** (`pxhelp`): Receive detailed explanations and examples for any shell command
-
+- Rich terminal formatting with colored output and structured display
+- Citation support with clickable links
+- Code block syntax highlighting
 
 ## Prerequisites
 
 - Python 3.11+
 - ZSH shell
-- Perplexity API key
-- Poetry (recommended for dependency management)
-- Ruff (for code formatting and linting)
+- Perplexity AI API key
+- Required Python packages:
+  - rich
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd perplexity-cli
+git clone https://github.com/trozzelle/perplexity-shell
+cd perplexity-shell
 ```
 
-2. Set up your environment:
+2. Install dependencies:
 ```bash
-# Create and activate virtual environment (optional)
-python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies using Poetry
-poetry install
+pip install rich
 ```
 
-3. Configure your API key:
+3. Set up your Perplexity API key:
 ```bash
 export PERPLEXITY_API_KEY="your-api-key-here"
 ```
 
-4. Add the ZSH functions to your shell:
+4. Source the ZSH script in your `.zshrc`:
 ```bash
-# Add to your .zshrc
-source /path/to/perplexity_python.zsh  # For Python-backed implementation
-# OR
-source /path/to/perplexity_shell_only.zsh  # For pure ZSH implementation
+source /path/to/perplexity-shell.zsh
 ```
 
 ## Usage
 
-### File Context Analysis
+### Basic Query
 ```bash
-# Get information about a file
-pxcontext path/to/file.txt
-
-# Ask specific questions about a file
-pxcontext path/to/file.txt "What are the main functions in this file?"
+px "your query here"
 ```
 
-### Command Help
+### Debug Mode
 ```bash
-# Get general help for a command
-pxhelp docker
-
-# Ask specific questions about a command
-pxhelp git "How do I revert a commit?"
+px --debug "your query here"
 ```
+
+### Direct Python Script Usage
+```bash
+python perplexity_shell.py --query "your query here" [--api_key YOUR_API_KEY] [--debug]
+```
+
+## Project Structure
+
+- `perplexity_shell.py`: Main Python implementation
+- `perplexity-shell.zsh`: ZSH integration script
+- `logs/`: Directory for log files (automatically created)
 
