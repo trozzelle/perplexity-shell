@@ -56,6 +56,22 @@ class TerminalFormatter:
 
         return content
 
+    @staticmethod
+    def _test_notes_format(notes):
+
+        if len(notes) == 0:
+            # Base case
+            return ""
+        elif len(notes) == 1 and isinstance(notes[0], str):
+            # If notes is a single long string
+            return ""
+        elif len(notes) > 1 and len(notes[0]) == 1:
+            # If notes is a list of strings
+            return ""
+        elif len(notes) > 1 and len(notes[0]) > 1:
+            # If notes is a list of objects
+            return ""
+
     def format_response(self, data: Dict[str, Any], citations: Dict[str, Any]) -> None:
         """Format the JSON response for terminal output using Rich"""
         try:
