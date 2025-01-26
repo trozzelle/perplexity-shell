@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.logging import RichHandler
+import re
 
 
 def setup_logging(debug: bool = False) -> None:
@@ -70,6 +71,45 @@ class TerminalFormatter:
             self.console.print(str(data), style="red")
 
 
+def parse_perplexity_response(raw_response: str) -> Dict[str, Any]:
+    if '"content":' in raw_response:
+        outer_json = json.loads(raw_response)
+        text = outer_json["choices"][0]["message"]["content"]
+    else:
+        text = raw_response
+
+    match = re.search(r"({[^}]*}(?:[^}]*})*)", text, re.DOTALL)
+    if not match:
+        raise ValueError("No JSON object found")
+
+    json_str = match.group(1)
+
+    def replace_newlines(m):
+        s = m.group(1)
+        s = re.sub(r"(?<!\\)\n", "{{NEWLINE}}", s)
+        return s
+
+    json_str = re.sub(r'("(?:\\.|[^"\\])*")', replace_newlines, json_str)
+    json_str = re.sub(r"[\x00-\x09\x0b-\x1F]", " ", json_str)
+
+    try:
+        result = json.loads(json_str)
+    except json.JSONDecodeError:
+        json_str = json_str.encode().decode("unicode_escape")
+        result = json.loads(json_str)
+
+    def restore_newlines(obj):
+        if isinstance(obj, dict):
+            return {k: restore_newlines(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [restore_newlines(item) for item in obj]
+        elif isinstance(obj, str):
+            return obj.replace("{{NEWLINE}}", "\n")
+        return obj
+
+    return restore_newlines(result)
+
+
 def query_perplexity(query: str, api_key: str) -> Dict[str, Any]:
     """Construct the request, send it to Perplexity, and return the response"""
     logger = logging.getLogger(__name__)
@@ -113,6 +153,7 @@ def query_perplexity(query: str, api_key: str) -> Dict[str, Any]:
         "response_format": response_schema,
     }
 
+    logger.debug(payload)
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     logger.debug(f"Sending request: {request}")
@@ -122,21 +163,26 @@ def query_perplexity(query: str, api_key: str) -> Dict[str, Any]:
                 raise ValueError(f"API request failed with status {response.status}")
 
             response_body = response.read().decode("utf-8")
-            response_json = json.loads(response_body)
-            logger.debug(f"Response body: {response_body}")
             try:
-                if "choices" in response_json and len(response_json["choices"]) > 0:
-                    # Escapes the newlines often included in Perplexity's response
-                    logger.debug(f"Choices: {response_json['choices']}")
-                    content = json.dumps(
-                        response_json["choices"][0]["message"]["content"]
-                    )
-                    logger.info(f"Choices to str: {content}")
-
-                    return json.loads(json.loads(content))
-                return {"explanation": "No result from Perplexity."}
-            except json.decoder.JSONDecodeError:
-                logger.error(f"Failed to decode choices: {content}")
+                content = parse_perplexity_response(response_body)
+                return content
+            except Exception as e:
+                logger.error(f"Failed to parse perplexity response: {e}")
+            # response_json = json.loads(response_body)
+            # logger.debug(f"Response body: {response_body}")
+            # try:
+            #     if "choices" in response_json and len(response_json["choices"]) > 0:
+            #         # Escapes the newlines often included in Perplexity's response
+            #         logger.debug(f"Choices: {response_json['choices']}")
+            #         content = json.dumps(
+            #             response_json["choices"][0]["message"]["content"]
+            #         )
+            #         logger.info(f"Choices to str: {content}")
+            #
+            #         return json.loads(json.loads(content))
+            #     return {"explanation": "No result from Perplexity."}
+            # except json.decoder.JSONDecodeError:
+            #     logger.error(f"Failed to decode choices: {content}")
 
     except (urllib.error.HTTPError, urllib.error.URLError) as e:
         logger.error(f"Request error: {e}")
