@@ -32,7 +32,7 @@ px() {
   fi
 
 
-  python3 "${SCRIPT_DIR}/perplexity_shell.py" --query "$*"
+  python3 "${SCRIPT_DIR}/perplexity_shell.py" --query "$*" $(is_being_debugged && echo "--debug")
 }
 
 

@@ -42,6 +42,20 @@ class TerminalFormatter:
         self.console = Console(markup=True)
         self.logger = logging.getLogger(__name__)
 
+    @staticmethod
+    def _format_citations(citations: Dict[str, Any], content: str) -> str:
+        """Adds citations url to footnote annotation"""
+
+        for i, citation in enumerate(citations, start=1):
+            citation_url = citation if citation else "#"
+            content = re.sub(
+                f"\\[{i}\\]",
+                f"[link={citation_url}][cyan][{i}][/cyan][/link]",
+                content,
+            )
+
+        return content
+
     def format_response(self, data: Dict[str, Any], citations: Dict[str, Any]) -> None:
         """Format the JSON response for terminal output using Rich"""
         try:
@@ -58,15 +72,11 @@ class TerminalFormatter:
             )
             explanation = data.get("explanation", "")
 
+            # Format the citations in the explanation text
             if explanation and citations:
-                for i, citation in enumerate(citations, start=1):
-                    citation_url = citation if citation else "#"
-                    explanation = re.sub(
-                        f"\\[{i}\\]",
-                        f"[link={citation_url}][[cyan]{i}[/cyan]][/link]",
-                        explanation,
-                    )
+                explanation = self._format_citations(citations, explanation)
 
+            # Add to renderables list
             if explanation:
                 explanation_table.add_row(explanation)
                 rich_content.append(Padding(explanation_table, (0, 0, 3, 0)))
@@ -89,14 +99,10 @@ class TerminalFormatter:
                 notes_renderables = []
 
                 for note in notes:
+                    # Format citations in the example text
                     if isinstance(note, str) and citations:
-                        for i, citation in enumerate(citations, start=1):
-                            citation_url = citation if citation else "#"
-                            note = re.sub(
-                                f"\\[{i}\\]",
-                                f"[link={citation_url}][[cyan]{i}[/cyan]][/link]",
-                                note,
-                            )
+                        note = self._format_citations(citations, note)
+
                     # Check if note is a dict with code
                     if isinstance(note, dict) and "code" in note:
                         notes_renderables.append(f"{note.get('description', '')}\n")
