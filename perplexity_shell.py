@@ -72,32 +72,54 @@ class TerminalFormatter:
 
 
 def parse_perplexity_response(raw_response: str) -> Dict[str, Any]:
+    # Perplexity's API often responds with a json string
+    # that has nested escaping. Gnarly stuff like
+    #
+    #  {\n      \"name\": \"Processing multi-line records\", \n
+    #   \"code\": \"awk 'BEGIN {RS=\\\"\\\\n\\\\n\\\"; FS=\\\"\\\\n\\\"}
+    # {print $1}' file.txt\",\n
+    #
+    # This is supposed to reflect the eventual formatting
+    # but is a nightmare to work with. Here, we handle it
+    # by replacing the control characters but preserving the
+    # newlines. A better approach would probably be to
+    # recursively unescape the content and build the JSON
+    # inside-out.
     if '"content":' in raw_response:
         outer_json = json.loads(raw_response)
         text = outer_json["choices"][0]["message"]["content"]
     else:
         text = raw_response
 
+    # Matches the JSON object, since sometimes the
+    # API will response with 'Here is the JSON object: {..."
     match = re.search(r"({[^}]*}(?:[^}]*})*)", text, re.DOTALL)
     if not match:
         raise ValueError("No JSON object found")
 
     json_str = match.group(1)
 
+    # To preserve nested escaped newlines, we sometimes
+    # temporarily replace them with a valid stand-in
+    # and then restore them at the end
     def replace_newlines(m):
         s = m.group(1)
         s = re.sub(r"(?<!\\)\n", "{{NEWLINE}}", s)
         return s
 
     json_str = re.sub(r'("(?:\\.|[^"\\])*")', replace_newlines, json_str)
+
+    # Removes any remaining control characters
     json_str = re.sub(r"[\x00-\x09\x0b-\x1F]", " ", json_str)
 
+    # Not sure this is still necessary
     try:
         result = json.loads(json_str)
     except json.JSONDecodeError:
         json_str = json_str.encode().decode("unicode_escape")
         result = json.loads(json_str)
 
+    # Recursively restore the newlines we had previously replaced
     def restore_newlines(obj):
         if isinstance(obj, dict):
             return {k: restore_newlines(v) for k, v in obj.items()}
