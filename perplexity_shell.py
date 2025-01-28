@@ -16,6 +16,8 @@ from rich.text import Text
 from rich.table import Table
 from rich import box
 from rich.padding import Padding
+from rich.live import Live
+from rich.spinner import Spinner
 import re
 
 

@@ -25,6 +25,8 @@ if [[ -z "${PERPLEXITY_API_KEY}" ]]; then
     return 1
 fi
 
+echo "$SCRIPT_DIR"
+
 px() {
   if [[ $# -eq 0 ]]; then
     echo "Usage: px <search query>"
